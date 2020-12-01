@@ -1,0 +1,173 @@
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">
+<title>WebGL - Jellyfish</title>
+<link href="css/style.css" rel="stylesheet" type="text/css">
+<script type="text/javascript" src="js/lib/jquery-1.4.2.min.js"></script>
+<script type="text/javascript" src="js/lib/mjs.js"></script>
+
+<script type="text/javascript" src="js/interact.js"></script>
+<script type="text/javascript" src="js/debug.js"></script>
+<script type="text/javascript" src="js/simulator.js"></script>
+
+<script type="text/javascript" src="js_webgpu/initWin.js"></script>
+<script type="text/javascript" src="js_webgpu/initUniforms.js"></script>
+<script type="text/javascript" src="js_webgpu/initTextures.js"></script>
+<script type="text/javascript" src="js_webgpu/initPipeline.js"></script>
+<script type="text/javascript" src="js_webgpu/initVertexAndIndexBuffers.js"></script>
+
+<script type="text/javascript" src="js_webgpu/tick.js"></script>
+<script type="text/javascript" src="js_webgpu/drawJellyfish.js"></script>
+<script type="text/javascript" src="js_webgpu/drawScene.js"></script>
+
+
+<style>
+body {
+  font-family:  'Monda', sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
+</style>
+
+<script id="jellyfish-vs" type="x-shader/x-vertex">
+#version 450
+layout(location = 0) in vec3 aVertexPosition;
+layout(location = 1) in vec3 aVertexNormal;
+layout(location = 2) in vec3 aVertexColor;
+layout(location = 3) in vec3 aTextureCoord;
+layout(location = 4) in vec4 aSkinWeight;
+
+layout(set = 0, binding = 0) uniform PerFrameData {
+  mat4 uWorld;
+  mat4 uViewInv;
+  mat4 uWorldView;
+  mat4 uWorldViewProj;
+} uPerFrameData;
+
+layout(set = 1, binding = 0) uniform PerInstanceData {
+  mat4 uJoint0;
+  mat4 uJoint1;
+  mat4 uJoint2;
+  mat4 uJoint3;
+  mat4 uJoint0InvTranspose;
+  float uCurrentJellyfishTime;
+} uPerInstanceData;
+
+layout(location = 0) out vec4 vWorld;
+
+layout(location = 1) out vec3 vTextureCoord;
+layout(location = 2) out vec3 vDiffuse;
+layout(location = 3) out vec3 vFresnel;
+
+void main(void) {
+
+  //Vertex Animation
+  float dpi = 6.2831853;
+  float pi = 3.14159265;
+  float hpi = 1.570796325;
+  float time = mod(uPerInstanceData.uCurrentJellyfishTime+aVertexPosition.y, dpi);
+
+  float offset = smoothstep(0.0,1.,max(0.,-aVertexPosition.y-0.8)/10.);
+
+  highp vec3 anim = (vec3(aVertexColor.x,aVertexColor.y,aVertexColor.z)/8.0*sin(time) * (1.-offset));
+  highp vec3 pos = aVertexPosition + anim;
+
+  //skinning
+  pos = vec3(uPerInstanceData.uJoint0 * vec4(pos, 1.0))*aSkinWeight.x +
+        vec3(uPerInstanceData.uJoint1 * vec4(pos, 1.0))*aSkinWeight.y +
+        vec3(uPerInstanceData.uJoint2 * vec4(pos, 1.0))*aSkinWeight.z +
+        vec3(uPerInstanceData.uJoint3 * vec4(pos, 1.0))*aSkinWeight.w;
+  vec3 nrm = vec3(uPerInstanceData.uJoint0InvTranspose * vec4(aVertexNormal, 1.0));
+
+  //matrices
+  vWorld =               uPerFrameData.uWorld * vec4(pos, 1.0);
+  highp vec4 WorldViewProj =       uPerFrameData.uWorldViewProj * vec4(pos, 1.0);
+
+  //vertex normal
+  vec3 VertexNormal = normalize(nrm);
+
+  //vertex eye vector
+  vec3 WorldEyeVec = normalize(vWorld.xyz - uPerFrameData.uViewInv[3].xyz);
+
+  //diffuse
+  vec3 lightDir = vec3(0.0,1.0,0.0);
+  vec3 lightCol = vec3(0.6,0.4,0.1);
+  vec3 ambientCol = vec3(0.5,0.2,0.1);
+  float diffuseProduct = max(dot(normalize(VertexNormal.xyz), lightDir), 0.0);
+  vDiffuse = lightCol * vec3(diffuseProduct) + ambientCol;
+
+  //fresnel
+  vec3 fresnelColor = vec3(0.2,0.5,0.6);
+  float fresnelProduct = pow(1.0-max(abs(dot(VertexNormal, -WorldEyeVec)), 0.0), 2.0);
+  vFresnel = fresnelColor * vec3(fresnelProduct);
+
+  //texture coords
+  vTextureCoord = aTextureCoord;
+
+  gl_Position = WorldViewProj;
+}
+</script>
+
+<script id="jellyfish-fs" type="x-shader/x-fragment">
+#version 450
+
+layout(set = 0, binding = 1) uniform CurrentTime {
+  float uCurrentTime;
+} uCurrentTimeSSBO;
+
+layout(set = 2, binding = 0) uniform sampler uSampler;
+layout(set = 2, binding = 1) uniform texture2D uTexture0;
+layout(set = 3, binding = 0) uniform texture2D uTexture1;
+//layout(set = 2, binding = 3) uniform texture2D uTexture2;
+
+layout(location = 0) in vec4 vWorld;
+
+layout(location = 1) in vec3 vTextureCoord;
+layout(location = 2) in vec3 vDiffuse;
+layout(location = 3) in vec3 vFresnel;
+
+layout (location = 0) out vec4 o_color;
+
+void main(void) {
+  vec3 caustics = texture(sampler2D(uTexture1, uSampler), vec2((vWorld.x) / 48. + uCurrentTimeSSBO.uCurrentTime / 12., (vWorld.z - vWorld.y) / 95.)).rgb;
+  vec4 colorMap = texture(sampler2D(uTexture0, uSampler), vec2(vTextureCoord.s, vTextureCoord.t));
+
+  o_color = vec4(((vDiffuse + caustics)*colorMap.rgb) + vFresnel, colorMap.a);
+}
+</script>
+
+<script type="text/javascript">
+$(document).ready(async function(){
+  await webGPUStart();
+});
+</script>
+
+</head>
+<body>
+    <div id="console">
+       <div class="console-field" id="debugJellyfish">
+          <b>jellyfish debug</b>
+            Frame rate: <span id="frameRate">NaN</span><br />
+
+            <span class="input-section">count</span>
+            <input type="text" class="textboxDebug" id="jCount" /><br />
+            <span class="input-section">size</span>
+            <input type="text" class="textboxDebug" id="jScale" />
+            <input type="text" class="textboxDebug" id="jScaleRandom"  /><br />
+            <span class="input-section">Turbulence</span>
+            <input type="text" class="textboxDebug" id="jTurb" /><br />
+            <span class="input-section">speed</span>
+            <input type="text" class="textboxDebug" id="jSpeed" /><br />
+        </div>
+    </div>
+    <canvas id="webgl-canvas"></canvas>
+
+    <script>
+      (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+      (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+      m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+      })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+      ga('create', 'UA-68216254-1', 'auto');
+      ga('send', 'pageview');
+    </script>
+
+</body>
+</html>
