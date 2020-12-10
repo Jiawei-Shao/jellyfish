@@ -60,7 +60,7 @@ async function GetRenderPipeline(device) {
     primitiveTopology: "triangle-list",
 
     colorStates: [{
-      format: "bgra8unorm",
+      format: swapchainFormat,
       alphaBlend: {
         operation: "add",
         srcFactor: "src-alpha",

@@ -6,6 +6,8 @@ var renderPipeline;
 
 var currentCanvas;
 
+var swapchainFormat;
+
 function initWin(w, h){
   (w) ? docWidth = w : docWidth = $(window).width();
   (h) ? docHeight = h : docHeight = $(window).height();
@@ -24,11 +26,13 @@ function initWin(w, h){
   return true;
 }
 
-function RecreateSwapchain() {
+function RecreateSwapchain(adapter) {
   var context = canvas.getContext('gpupresent');
+
+  swapchainFormat = context.getSwapChainPreferredFormat(adapter);
   swapChain = context.configureSwapChain({
     device,
-    format: "bgra8unorm",
+    format: swapchainFormat,
   });
 
   depthTexture = device.createTexture({
@@ -62,13 +66,13 @@ async function webGPUStart() {
   var adapter = await navigator.gpu.requestAdapter();
   device = await adapter.requestDevice();
 
+  RecreateSwapchain(adapter);
+
   initUniforms(device, renderPipeline);
   await initTextures();
 
   renderPipeline = await GetRenderPipeline(device);
   initBuffers(device);
-
-  RecreateSwapchain();
 
   currentCanvas = canvas;
 
