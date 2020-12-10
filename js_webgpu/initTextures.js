@@ -10,6 +10,9 @@ async function initTextures() {
   sampler = device.createSampler({
     magFilter: "linear",
     minFilter: "linear",
+    addressModeU: "repeat",
+    addressModeV: "repeat",
+    addressModeW: "repeat",
   });
 
   initTextureAndSamplerBindGroupLayout();
