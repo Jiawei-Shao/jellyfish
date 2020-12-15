@@ -50,7 +50,7 @@ async function loadTexture(label, path) {
   var imageElement = new Image();
   imageElement.src = path;
   await new Promise(resolve => {imageElement.onload = () => resolve(imageElement)});
-  const imageBitmap = await createImageBitmap(imageElement, { imageOrientation: 'flipY' });
+  const imageBitmap = await createImageBitmap(imageElement, { imageOrientation: 'flipY', premultiplyAlpha: 'none' });
 
   var size = {width: imageBitmap.width, height: imageBitmap.height, depth: 1};
   texture[label] = device.createTexture({
